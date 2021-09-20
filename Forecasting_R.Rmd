@@ -1,0 +1,378 @@
+---
+title: "Forecasting product demand"
+author: "Taral Desai"
+date: "05/08/2021"
+output: html_document
+---
+
+## Required libraries
+
+```{r}
+library(readr)
+library(xts)
+library(forecast)
+```
+
+
+## Importing Data
+
+There are a lot of ways to import data into R! Once the data is imported into R, we need to transform the data into an xts object to help with analysis. These xts objects are so much easier to plot and manipulate.
+
+```{r}
+Bev <- read_csv("Downloads/Bev.csv")
+head(Bev)
+```
+
+
+```{r}
+# Load xts package 
+library(xts)
+
+# Create the dates object as an index for your xts object
+dates <- seq(as.Date("2014-01-19"), length = 176, by = "weeks")
+
+# Create an xts object called bev_xts
+bev_xts <- xts(Bev, order.by = dates)
+head(bev_xts[,"M.hi"], n = 10)
+```
+
+# Visualising Data
+
+There are three products in the metropolitan areas - high end, low end, and specialty. The specialty product is not sold any where else in the state. The column names for the sales of these three products are MET.hi, MET.lo, and MET.sp respectively. Before looking at each one of these products individually, let's plot how total sales are going in the metropolitan region. 
+
+```{r}
+# Creating the individual region sales as their own objects
+MET_hi <- bev_xts[,"MET.hi"]
+MET_lo <- bev_xts[,"MET.lo"]
+MET_sp <- bev_xts[,"MET.sp"]
+
+# Sum the region sales together
+MET_t <- MET_hi + MET_lo + MET_sp
+
+# Plot the metropolitan region total sales
+plot(MET_t)
+```
+
+## ARIMA MODEL
+
+-Auto Regressive Models
+-Integrated
+-Moving Average
+
+
+```{r}
+# Split the data into training and validation
+MET_t_train <- MET_t[index(MET_t) < "2017-01-01"]
+MET_t_valid <- MET_t[index(MET_t) >= "2017-01-01"]
+
+# Use auto.arima() function for metropolitan sales training data
+MET_t_model = auto.arima(MET_t_train)
+MET_t_model
+```
+
+## FORECASTING
+
+```{r}
+# Forecasting first 22 weeks of 2017
+forecast_MET_t <- forecast(MET_t_model, h = 22)
+
+# Plot the forecast 
+plot(forecast_MET_t)
+```
+
+```{r}
+# Convert to numeric for ease
+for_MET_t <- as.numeric(forecast_MET_t$mean)
+v_MET_t <- as.numeric(MET_t_valid)
+
+# Calculate the MAE
+MAE <- mean(abs(for_MET_t - v_MET_t))
+
+# Calculate the MAPE
+MAPE <- 100*mean(abs((for_MET_t - v_MET_t)/v_MET_t))
+
+
+print(MAE)
+print(MAPE)
+```
+
+## FORECAST COMPARISON
+
+```{r}
+# Convert forecast to an xts object
+for_dates <- seq(as.Date("2017-01-01"), length = 22, by = "weeks")
+for_MET_t_xts <- xts(forecast_MET_t$mean, order.by = for_dates)
+
+# Plot the validation dataset
+plot(MET_t_valid, main = 'Forecast Comparison', ylim = c(4000, 8500))
+
+# Overlay the forecast of 2017
+lines(for_MET_t_xts, col = "blue")
+```
+## CONFIDENCE INTERVAL FOR FORECAST
+
+```{r}
+# Plot the validation data set
+plot(MET_t_valid, main = 'Forecast Comparison', ylim = c(4000, 8500))
+
+# Overlay the forecast of 2017
+lines(for_MET_t_xts, col = "blue")
+
+# Convert the limits to xts objects
+lower <- xts(forecast_MET_t$lower[,2], order.by = for_dates)
+upper <- xts(forecast_MET_t$upper[,2], order.by = for_dates)
+
+# Adding confidence intervals of forecast to plot
+lines(lower, col = "blue", lty = "dashed")
+lines(upper, col = "blue", lty = "dashed")
+```
+## PRICE ELASTICITY
+Price Elasticity is the economic measure of how much demand "reacts" to change in price
+
+## CALCULATING PRICE ELASTICITY
+
+```{r}
+bev_xts_train <- bev_xts[index(MET_t) <= "2017-01-01"]  
+MET_hi<-MET_hi[index(MET_t) <= "2017-01-01"]
+# Save the prices of each product
+l_MET_hi_p <- as.vector(log(bev_xts_train[,"MET.hi.p"]))
+
+# data frame
+MET_hi_train <- data.frame(as.vector(log(MET_hi)), l_MET_hi_p)
+colnames(MET_hi_train) <- c("log_sales", "log_price")
+
+# Calculating regression
+model_MET_hi <- lm(log_sales ~ log_price, data = MET_hi_train)
+
+model_MET_hi
+```
+High end product is elastic in the metropoliton region
+
+## Visualize holiday / promotion effects
+
+```{r}
+MET_hi_p<- bev_xts[,"MET.hi.p"]
+# Plotting product's sales
+plot(MET_hi)
+```
+
+```{r}
+# Plotting product's price
+plot(MET_hi_p)
+```
+
+## holiday / promotional effect variables
+
+ Products would be more desired around the weeks of Christmas, New Year's, and Valentine's Day.
+
+```{r}
+# Date indices for New Year's week
+n.dates <- as.Date(c("2014-12-28", "2015-12-27", "2016-12-25"))
+
+# xts objects for New Year's week
+newyear <- as.xts(rep(1, 3), order.by = n.dates)
+
+# date indices for valentines's week
+n1.dates <- as.Date(c("2014-02-09", "2015-02-08", "2016-02-07"))
+
+# xts objects for valentine's week
+valentine <- as.xts(rep(1, 3), order.by = n1.dates)
+
+# date indices for christmas's week
+n2.dates <- as.Date(c("2014-12-21", "2015-12-20", "2016-12-18"))
+
+# xts objects for christmas's week
+christmas <- as.xts(rep(1, 3), order.by = n2.dates)
+
+# date indices for New mother's week
+n3.dates <- as.Date(c("2014-05-04", "2015-05-03", "2016-05-01"))
+
+# xts objects for mother's week
+mother <- as.xts(rep(1, 3), order.by = n3.dates)
+
+# sequence of dates for merging
+dates_train <- seq(as.Date("2014-01-19"), length = 155, by = "weeks")
+
+# Merge training dates into New Year's object
+newyear <- merge(newyear, dates_train, fill = 0)
+valentine <- merge(valentine, dates_train, fill = 0)
+christmas<- merge(christmas, dates_train, fill = 0)
+mother<- merge(mother, dates_train, fill = 0)
+# MET_hi_train_2 by adding new year
+MET_hi_train_2 <- data.frame(MET_hi_train, as.vector(newyear))
+MET_hi_train_2 <- data.frame(MET_hi_train_2, as.vector(valentine))
+MET_hi_train_2 <- data.frame(MET_hi_train_2, as.vector(christmas))
+MET_hi_train_2 <- data.frame(MET_hi_train_2, as.vector(mother))
+
+colnames(MET_hi_train_2)[3:6] <- c("newyear","valentine","christmas","mother")
+head(MET_hi_train_2)
+```
+```{r}
+# Building regressions for the products
+model_MET_hi_full <- lm(log_sales ~log_price + newyear+valentine+christmas+mother, data = MET_hi_train_2)
+
+summary(model_MET_hi_full)
+```
+
+For 0.01 as significant,The Mother's Day promotion is significantly helping increase sales.
+
+## Forecasting with regression 
+
+Future Predictor Variables
+
+```{r}
+
+bev_xts_valid<-bev_xts[index(MET_t) >="2017-01-01"]
+
+# Subset the validation prices 
+l_MET_hi_p_valid <- as.vector(log(bev_xts_valid[,"MET.hi.p"]))
+
+# Create a validation data frame 
+MET_hi_valid <- data.frame(l_MET_hi_p_valid)
+colnames(MET_hi_valid) <- "log_price"
+```
+
+## Forecast future values of demand
+
+```{r}
+# Predict the log of sales for your high end product
+pred_MET_hi <- predict(model_MET_hi, newdata = MET_hi_valid)
+
+# Convert predictions out of log scale
+pred_MET_hi <- exp(pred_MET_hi)
+
+```
+
+## Visualizing forecasts of regression
+
+```{r}
+# Convert to an xts object
+dates_valid <- seq(as.Date("2017-01-01"), length = 22, by = "weeks")
+pred_MET_hi_xts <- xts(pred_MET_hi, order.by = dates_valid)
+
+# Plot the forecast
+plot(pred_MET_hi_xts)
+
+# Calculate and print the MAPE
+MET_hi_v <- bev_xts_valid[,"MET.hi"]
+
+MAPE <- 100*mean(abs((pred_MET_hi_xts - MET_hi_v)/MET_hi_v))
+print(MAPE)
+```
+## Regression residuals
+Ways to reduce residuals further:
+1 - Add more important variables to the model
+2 - Use time series if your residuals are related over time
+
+```{r}
+# Calculating the residuals from the model
+MET_hi_full_res <- residuals(model_MET_hi_full)
+
+# Converting the residuals to an xts object
+MET_hi_full_res <- xts(MET_hi_full_res, order.by = dates_train)
+
+# Plotting the histogram of the residuals
+hist(MET_hi_full_res)
+
+# Plotting the residuals over time
+plot(MET_hi_full_res)
+```
+## Forecasting Residuals
+
+Demand = Inputs + Errors
+
+ARIMA model on the residuals
+
+```{r}
+# Building an ARIMA model on the residuals: MET_hi_arima
+MET_hi_arima <- auto.arima(MET_hi_full_res)
+
+# summary of the model
+summary(MET_hi_arima)
+```
+
+# Forecasting residuals with time series
+
+```{r}
+# Forecasting 22 weeks with your model: for_MET_hi_arima
+for_MET_hi_arima <- forecast(MET_hi_arima, h = 22)
+
+# Printing first 10 observations
+head(for_MET_hi_arima, n = 10)
+```
+
+## Visualizing residual forecasts
+
+```{r}
+# Converting forecasts into an xts object
+dates_valid <- seq(as.Date("2017-01-01"), length = 22, by = "weeks")
+for_MET_hi_arima <- xts(for_MET_hi_arima$mean, order.by = dates_valid)
+
+# Plotting the forecast
+plot(for_MET_hi_arima)
+```
+
+## Transfer functions and Ensembling
+
+Combining residuals from regression & time series
+
+```{r}
+# Converting residual forecast to the exponential version
+for_MET_hi_arima <- exp(for_MET_hi_arima)
+
+# Multiplying forecasts together
+for_MET_hi_final <- pred_MET_hi_xts * for_MET_hi_arima
+
+# Plotting the final forecast
+plot(for_MET_hi_final, ylim = c(1000, 4300))
+
+# Overlaying the validation data set
+lines(MET_hi_v, col = "blue")
+```
+## Calculating transfer function MAPE and MAE
+
+```{r}
+# Calculating the MAE
+MAE <- mean(abs(for_MET_hi_final - MET_hi_v))
+print(MAE)
+
+# Calculating the MAPE
+MAPE <- 100*mean(abs((for_MET_hi_final - MET_hi_v)/MET_hi_v))
+print(MAPE)
+```
+
+## Arima Forecasting 
+
+```{r}
+# Building an ARIMA model using the auto.arima function
+MET_hi_model_arima <- auto.arima(MET_hi)
+
+# Forecasting the ARIMA model you just built above
+for_MET_hi <- forecast(MET_hi_model_arima, h = 22)
+
+# forecast as an xts object
+dates_valid <- seq(as.Date("2017-01-01"), length = 22, by = "weeks")
+for_MET_hi_xts <- xts(for_MET_hi$mean, order.by = dates_valid)
+
+# Calculating the MAPE of the forecast
+MAPE <- 100*mean(abs((for_MET_hi_xts - MET_hi_v)/MET_hi_v))
+print(MAPE)
+```
+
+## Ensembling of Forecasts
+
+```{r}
+# Ensembling the two forecasts together
+for_MET_hi_en <- 0.5*(for_MET_hi_xts + pred_MET_hi_xts)
+
+# Calculating the MAE and MAPE
+MAE <- mean(abs(for_MET_hi_en - MET_hi_v))
+print(MAE)
+
+MAPE <- 100*mean(abs((for_MET_hi_en - MET_hi_v)/MET_hi_v))
+print(MAPE)
+```
+
+
+
+
